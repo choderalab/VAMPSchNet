@@ -311,6 +311,7 @@ def train_with_sampler(n_epochs, batch_size=1024, learning_rate=1e-4):
     
 
     # get the node feature matrix in a tensor and pass onto deivice 
+    # TODO: more sophisticated atom typing
     z = torch.LongTensor([0, 0, 1, 2, 0, 0, 0, 1, 2, 0] * batch_size)
     z = z.to(device=device, non_blocking=True, dtype=torch.long)
     for epoch in range(n_epochs):
@@ -330,6 +331,7 @@ def train_with_sampler(n_epochs, batch_size=1024, learning_rate=1e-4):
 
         lobe.eval()
         scores_val = []
+        # TODO: employ pytorch_geometric DataLoader
         for batch_0, batch_t in loader_val:
             # here the shape of batch_0 and batch_t are both: torch.Size([1, batch_size, 10, 3]) 
             batch_0 = batch_0.view(1, batch_size*10, 3)
@@ -340,6 +342,14 @@ def train_with_sampler(n_epochs, batch_size=1024, learning_rate=1e-4):
             data_t = (z, batch_t)
             score_val = vschnet.validate((data_0, data_t))
             scores_val.append(score_val.cpu().numpy())
-        print(f"    Epoch {epoch+1}/{n_epochs}: Validation score {np.mean(scores_val):.4f}", end='\r')
-    return vschnet
-vschnet = train_with_sampler(6, learning_rate=5e-4)  # or the easier version, train(...)
+        print(f"Epoch {epoch+1}/{n_epochs}: Validation score {np.mean(scores_val):.4f}", end='\r')
+    return vschnet, scores_val
+vschnet, scores_val = train_with_sampler(50, learning_rate=5e-4)  # or the easier version, train(...)
+
+train_scores = vschnet.train_scores.T # numpy array with [[index] [score]]
+val_scores = np.array([np.array(np.arange(len(scores_val))), scores_val])
+
+# output the training and validation scores into npy files
+np.save('vsn_train_scores.npy', train_scores)
+np.save('vsn_val_scores.npy', val_scores)
+
