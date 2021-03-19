@@ -13,14 +13,14 @@ from numpy.random import default_rng
 #np.set_printoptions(threshold=sys.maxsize)
 
 # Tau, how much is the timeshift of the two datasets
-tau = 1 # 0.25 ns * 20 = 5 ns (0.25 ns timesteps)
+tau = 400 # 0.25 ns * 400 = 100 ns (0.25 ns timesteps)
 # Which trajectory points percentage is used as training
-train_ratio = 0.95
+train_ratio = 0.85
 
 # trajectorie with DFG flips
-#traj_indices = [(42, 1), (42, 3), (42, 6), (48, 11), (48, 12), (48, 13), (53, 10), (53, 18), (53, 4), (54, 14), (55, 13), (57, 11), (62, 18), (62, 9), (67, 19), (67, 6), (69, 11), (69, 3), (69, 7), (70, 17), (71, 19), (71, 7), (73, 10), (73, 15), (74, 10), (74, 14), (74, 16), (74, 19), (74, 6), (75, 19), (77, 17)] 
-
-traj_indices = [(42, 1)]
+traj_indices = [(42, 1), (42, 3), (42, 6), (48, 11), (48, 12), (48, 13), (53, 10), (53, 18), (53, 4), (54, 14), (55, 13), (57, 11), (62, 18), (62, 9), (67, 19), (67, 6), (69, 11), (69, 3), (69, 7), (70, 17), (71, 19), (71, 7), (73, 10), (73, 15), (74, 10), (74, 14), (74, 16), (74, 19), (74, 6), (75, 19), (77, 17)] 
+#traj_indices = [(42, 1), (42, 3), (42, 6), (48, 11), (48, 12)]
+#traj_indices = [(42, 1), (42, 3), (42, 6), (48, 11), (48, 12), (48, 13), (53, 10), (53, 18), (53, 4), (54, 14), (55, 13), (57, 11), (62, 18), (62, 9), (67, 19), (67, 6), (69, 11), (69, 3), (69, 7), (70, 17), (71, 19), (71, 7), (73, 10), (73, 15), (74, 10)]
 
 # select trajectories for training and testing
 num_trajs = len(traj_indices) # total number of trajs
@@ -35,14 +35,14 @@ np.save(f'test_index.npy', np.array(test_index))
 
 # find the relevant atom indices
 key_res = list()
-#key_res.append(np.arange(184, 205)) # A-loop: 21 aa (M184 - I204)
-#key_res.append(np.arange(14, 20)) # P-loop: 6 aa (G14 - G19)
+key_res.append(np.arange(184, 205)) # A-loop: 21 aa (M184 - I204)
+key_res.append(np.arange(14, 20)) # P-loop: 6 aa (G14 - G19)
 key_res.append(np.arange(181, 183)) # DFG-flip: D181, F182
-#key_res.append(np.arange(65, 76)) # aC helix: 11 aa (D65 - R75)
+key_res.append(np.arange(65, 76)) # aC helix: 11 aa (D65 - R75)
 
 key_res = list(i for sublist in key_res for i in sublist)
 
-traj = md.load(f'data/run{traj_indices[0][0]}-clone{traj_indices[0][1]}.h5')
+traj = md.load(f'../data/run{traj_indices[0][0]}-clone{traj_indices[0][1]}.h5')
 topology = traj.topology
 
 table, bonds = topology.to_dataframe() # JG debug
@@ -51,11 +51,12 @@ atoms = table.values
 
 atom_indices = list()
 for res in key_res:
-    atom_indices.append(topology.select(f"chainid 0 and residue {res} and name == CA"))
-    #atom_indices.append(topology.select(f"chainid 0 and residue {res} and type != H"))
+    #atom_indices.append(topology.select(f"chainid 0 and residue {res} and name == CA"))
+    atom_indices.append(topology.select(f"chainid 0 and residue {res} and type != H"))
 
 atom_indices = list(i for sublist in atom_indices for i in sublist)
 print("len of features: ", len(atom_indices))
+num_nodes = len(atom_indices)
 
 # get the atom typs 
 atom_type = list()
@@ -80,13 +81,14 @@ list_val_indices = list()
 
 for index in traj_indices:
     print(f"traj index: {index}")
-    traj = md.load(f'data/run{index[0]}-clone{index[1]}.h5')
+    traj = md.load(f'../data/run{index[0]}-clone{index[1]}.h5')
     topology = traj.topology
     pos = traj.xyz[:,atom_indices,:] # pos is a np.array of shape (data_len, num_nodes, 3) 
     # separate the data into training and validation
     n_train = int(np.floor(len(pos) * train_ratio))
     n_validation = len(pos) - tau - n_train
-
+    print("JG debug: ")
+    print(n_train, n_validation)
     # separate the time-lagged datapoints and shuffle data
     dataset = dt.data.TimeLaggedDataset.from_trajectory(tau, pos.astype(np.float32))
     train_data, val_data = torch.utils.data.random_split(dataset, [n_train, n_validation])
@@ -106,8 +108,8 @@ print("len of train data: ", len(total_train_data))
 
 # check the availability of cuda
 assert torch.cuda.is_available()
-#device = torch.device("cuda:0")
-device = torch.device("cpu")
+device = torch.device("cuda:0")
+#device = torch.device("cpu")
 torch.backends.cudnn.benchmark = True
 torch.set_num_threads(12)
 
@@ -300,9 +302,9 @@ class VAMPSchNet(Module):
         # get the node feature matrix in a tensor and pass onto deivice 
         # TODO: more sophisticated atom typing
         z = torch.LongTensor(atom_type * batch_size) # len(atom_type) = number of features to include
-        print("(before) total atom type: ", z)
-        print("(before) shape total atom type: ", z.shape)
-        print("(before) data type: ", z.dtype)
+        #print("(before) total atom type: ", z)
+        #print("(before) shape total atom type: ", z.shape)
+        #print("(before) data type: ", z.dtype)
         z = z.to(device=device, non_blocking=True, dtype=torch.long) # JG
         assert z.dim() == 1 and z.dtype == torch.long
 
@@ -312,13 +314,13 @@ class VAMPSchNet(Module):
         #print("(after) total atom type: ", z)
         #print("(after) shape total atom type: ", z.shape)
         #print("(after) data type: ", z.dtype)
-        print("embedding weights: ")
-        print(self.embedding.weight.data) # JG
+        #print("embedding weights: ")
+        #print(self.embedding.weight.data) # JG
 
         h = self.embedding(z) # JG
-        print("h dtype: ", h.dtype)
-        print("h[0][:]: ", h[0][:])
-        print("h[1][:]: ", h[1][:])
+        #print("h dtype: ", h.dtype)
+        #print("h[0][:]: ", h[0][:])
+        #print("h[1][:]: ", h[1][:])
       
 
         #print("initial embedding: ", h)
@@ -332,15 +334,15 @@ class VAMPSchNet(Module):
             #print("shape of edge_weight: ", edge_weight.size())
             #print("shape of edge_attr: ", edge_attr.size())
             h = h + interaction(h, edge_index, edge_weight, edge_attr)
-        print("h dtype after interaction: ", h.dtype)
-        print("h[0][:] after interaction: ", h[0][:])
-        print("h[1][:] after interaction: ", h[1][:])
+        #print("h dtype after interaction: ", h.dtype)
+        #print("h[0][:] after interaction: ", h[0][:])
+        #print("h[1][:] after interaction: ", h[1][:])
         h = self.lin1(h)
         h = self.act(h)
         h = self.lin2(h)
         x = global_mean_pool(h, batch, batch_size)# torch.Size([16, hidden_channels])
-        print("featurization: ", x)
-        print('mean size: ', x.shape)
+        #print("featurization: ", x)
+        #print('mean size: ', x.shape)
         #x = h.view(batch_size, num_nodes*h.size(-1))
         #print("data type: ", h.dtype)
         #print("data size: ", x.size())
@@ -353,8 +355,8 @@ class VAMPSchNet(Module):
         x = F.elu(self.vamp_lin4(x))
         x = F.elu(self.vamp_lin5(x))
         x = F.softmax(self.vamp_lin6(x), dim=1)
-        print("softmax:")
-        print(x)
+        #print("softmax:")
+        #print(x)
         return x
 
 # define the training function
@@ -396,12 +398,12 @@ def train_with_sampler(n_features, n_epochs, batch_size=64, learning_rate=1e-4):
 
     val_scores = list()
     for epoch in range(n_epochs):
-        #print(f"Epoch {epoch+1}/{n_epochs}...")
-        print(f"Epoch {epoch}...")
+        print(f"Epoch {epoch+1}/{n_epochs}...")
+        #print(f"Epoch {epoch}...")
         lobe.train()
-        count = 0 # JG
+        #count = 0 # JG
         for batch_0, batch_t in loader:
-            print(f"batch {count}...") # JG
+            #print(f"batch {count}...") # JG
             # here the shape of batch_0 and batch_t are both: torch.Size([1, batch_size, 10, 3]) 
             batch_0 = batch_0.view(1, batch_size*num_nodes, 3)
             batch_t = batch_t.view(1, batch_size*num_nodes, 3)
@@ -409,7 +411,7 @@ def train_with_sampler(n_features, n_epochs, batch_size=64, learning_rate=1e-4):
             batch_0 = batch_0[0].to(device=device, non_blocking=True, dtype=torch.float32)
             batch_t = batch_t[0].to(device=device, non_blocking=True, dtype=torch.float32)
             vschnet.partial_fit((batch_0, batch_t)) # original
-            count += 1 # JG
+            #count += 1 # JG
         lobe.eval()
         scores_val = []
         # TODO: employ pytorch_geometric DataLoader
@@ -424,7 +426,7 @@ def train_with_sampler(n_features, n_epochs, batch_size=64, learning_rate=1e-4):
         print(f"Epoch {epoch+1}/{n_epochs}: Validation score {np.mean(scores_val):.4f}", end='\r')
         val_scores.append(np.mean(scores_val)) # record mean validation score from each epoch
     return vschnet, val_scores
-vschnet, val_scores = train_with_sampler(len(atom_indices), 1, learning_rate=5e-4)  # or the easier version, train(...)
+vschnet, val_scores = train_with_sampler(num_nodes, 100, learning_rate=5e-4)  # or the easier version, train(...)
 
 train_scores = vschnet.train_scores.T # numpy array with [[index] [score]]
 val_scores = np.array([np.array(np.arange(len(val_scores))), np.array(val_scores)])
@@ -433,34 +435,24 @@ val_scores = np.array([np.array(np.arange(len(val_scores))), np.array(val_scores
 np.save('train_scores.npy', train_scores)
 np.save('val_scores.npy', val_scores)
 
-
-
-
-
-'''
 # analysis #1: state probabilities for each of the output states
-# final results: a list containing three trajectories, each contains fuzzy membership of each point into 6 states [np.ndarray (250000, 6)]
-
+# final results: a list containing three trajectories, each contains fuzzy membership of each point into 8 states [np.ndarray (31, 4000, 3)]
 # process each trajectory X in coordinates and save results separately
 final_results = list()
-count = 0
-num_nodes = 325
-for i in traj_index[num_train:]:
-    traj = md.load(f'../../../trpzip2_data/run0-clone{i}.h5')
-    pos = traj.xyz[:,atom_indices,:] # pos is a np.array of shape (data_len, num_nodes, 3)
-    new_batch_size = len(traj)
+
+for index in traj_indices:
+    print(f"traj index: {index}")
+    traj = md.load(f'../data/run{index[0]}-clone{index[1]}.h5')
+    topology = traj.topology
+    pos = traj.xyz[:,atom_indices,:] # pos is np.array of shape (traj_len, num_nodes, 3)
+    #new_batch_size = len(traj)
+    new_batch_size = 32
     new_loader = torch.utils.data.DataLoader(pos, new_batch_size, shuffle=False)
     results = list()
     for data in new_loader:
-        # reshape X from n_data*(n_node*n_coord) to (n_data*n_node)*n_coord for pytorch_geometric
+        # reshape traj data to (n_data*n_nodes)*n_coord
         data = data.reshape((new_batch_size*num_nodes, 3))
         results.append(vschnet.transform(data))
     final_results.append(np.concatenate((results), axis=0))
-    np.save(f'transformed_trajs.npy', final_results)
-    count += 1
-'''
-
-
-
-
+np.save(f'transformed_trajs.npy', final_results)
 
